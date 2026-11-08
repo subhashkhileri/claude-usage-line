@@ -1,0 +1,5 @@
+{
+  "name": "usage-line",
+  "owner": { "name": "subhashkhileri" },
+  "plugins": [ { "name": "usage-line", "source": "./", "description": "Compact usage line: context, 5h and weekly limits" } ]
+}

@@ -1,0 +1,7 @@
+{
+  "name": "usage-line",
+  "version": "0.2.0",
+  "description": "One compact line above the prompt: context %, 5-hour and weekly limits with reset countdown",
+  "author": { "name": "subhashkhileri" },
+  "types": "./types/index.d.ts"
+}
