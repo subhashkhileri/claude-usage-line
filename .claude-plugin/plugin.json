@@ -2,6 +2,7 @@
   "name": "usage-line",
   "version": "0.3.1",
   "description": "One compact line above the prompt: model and effort, context %, 5-hour and weekly limits with reset countdown",
+  "license": "MIT",
   "author": { "name": "subhashkhileri" },
   "types": "./types/index.d.ts"
 }
