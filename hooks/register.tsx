@@ -1,9 +1,34 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
-import type { Limit, Usage } from '../types'
+import type { Limit, Model, Usage } from '../types'
 
 const usage = atom({ plugin: 'usage-line', key: 'usage' } as const, null)
+const model = atom({ plugin: 'usage-line', key: 'model' } as const, null)
+
+// claude-fable-5-2-20260101 -> fable-5-2, Fable 5.2 -> fable-5-2, fable[1m] -> fable
+const short = (id: string) =>
+  id.toLowerCase().replace(/\[.*\]$/, '').replace(/[ .]+/g, '-').replace(/^claude-/, '').replace(/-\d{8}$/, '')
+
+const LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
+const level = (v: unknown) => (typeof v === 'string' && LEVELS.includes(v) ? v : null)
+
+// What a new session will send before any request confirms it: the effort saved
+// for the model in settings (modelSettings.<id>.effortLevel, else effortLevel),
+// overridden by CLAUDE_CODE_EFFORT_LEVEL and capped by maxEffortLevel.
+const saved = (name: string, settings: Record<string, unknown>, env: string | undefined): Model => {
+  const per = (settings.modelSettings ?? {}) as Record<string, { effortLevel?: unknown } | null>
+  const n = short(name)
+  // `fable` is an alias of the newest fable-* id that has settings
+  const ids = Object.keys(per).filter(k => short(k) === n || short(k).startsWith(n + '-')).sort()
+  const id = ids.find(k => short(k) === n) ?? ids.at(-1)
+  const cap = level(settings.maxEffortLevel)
+  let effort = env === undefined
+    ? level(id ? per[id]?.effortLevel : undefined) ?? level(settings.effortLevel)
+    : level(env)
+  if (effort && cap && LEVELS.indexOf(effort) > LEVELS.indexOf(cap)) effort = cap
+  return { name: id ?? name, effort }
+}
 
 const pct = (v: number | null | undefined) => (v == null ? '--' : `${Math.round(v)}%`)
 
@@ -28,7 +53,20 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const u = await $.session.usage()
     await update($, usage, () => snap(u.context.percent, u.rateLimits))
+    const name = await $.session.model()
+    const settings = await $.settings.read()
+    const env = await $.env.get('CLAUDE_CODE_EFFORT_LEVEL')
+    await update($, model, (m: Model | null) => (m?.effort ? m : saved(name, settings, env)))
     return next(e)
+  })
+
+  // each main-loop request names the model and effort actually sent
+  on('turn.step', async function* ($, e, next) {
+    if (e.agentId === undefined) {
+      const effort = typeof e.effort === 'string' ? e.effort : null
+      await update($, model, () => ({ name: e.model, effort }))
+    }
+    return yield* next(e)
   })
 
   on('session.measure', async ($, e, next) => {
@@ -38,6 +76,7 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const u = await read($, usage)
+    const m = await read($, model)
     if (!u) return next(e)
     const now = await $.clock.now()
     const get = (k: string) => u.limits.find(l => l.kind === k)
@@ -69,6 +108,13 @@ export const register: Register = on => {
     const w = get('seven_day')
     return (
       <Box flexDirection="row" gap={2} paddingX={1}>
+        {m ? (
+          <Box key="model" flexDirection="row" gap={1}>
+            <Text bold>{short(m.name)}</Text>
+            {m.effort ? <Text dimColor>{m.effort}</Text> : null}
+          </Box>
+        ) : null}
+        {m ? sep('s0') : null}
         {cell('ctx', 'ctx', u.ctx)}
         {sep('s1')}
         {cell('5h', '5h', f?.percentUsed, f?.resetsAt)}
